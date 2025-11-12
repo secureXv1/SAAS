@@ -1,66 +1,91 @@
 <!-- src/pages/business/Setup.vue -->
 <template>
   <div class="grid gap-6">
-<!-- 1) Plan (separado del guardado de datos) -->
-<div class="card grid gap-3">
-  <div class="flex items-center justify-between">
-    <h2 class="font-semibold">Plan</h2>
-    <div v-if="subscription" class="text-xs text-slate-500">
-      Vigente: <strong>{{ subscription.started_at }}</strong> → <strong>{{ subscription.ends_at }}</strong>
-    </div>
-  </div>
-
-  <!-- catálogo de planes -->
-    <div class="grid sm:grid-cols-3 gap-3">
-        <label
-        v-for="p in plans"
-        :key="p.code"
-        class="border rounded-xl p-3 hover:shadow cursor-pointer"
-        :class="selectedPlan === p.code ? 'ring-2 ring-sky-500' : ''"
-        >
-        <input class="mr-2" type="radio" :value="p.code" v-model="selectedPlan">
-        {{ p.name }}
-        <div class="text-xs text-slate-500">Anual: {{ formatPrice(p.price_yr) }}</div>
-        <div v-if="Array.isArray(p.features)" class="mt-2">
-            <ul class="text-xs list-disc pl-4 text-slate-500">
-            <li v-for="f in p.features" :key="f">{{ f }}</li>
-            </ul>
+    <!-- 1) Plan (separado del guardado de datos) -->
+    <div class="card grid gap-3">
+      <div class="flex items-center justify-between">
+        <h2 class="font-semibold">Plan</h2>
+        <div v-if="subscription" class="text-xs text-slate-500">
+          Vigente: <strong>{{ formatDate(subscription.started_at) }}</strong> → <strong>{{ formatDate(subscription.ends_at) }}</strong>
         </div>
+      </div>
+
+      <!-- catálogo de planes -->
+      <div class="grid sm:grid-cols-3 gap-3">
+        <label
+          v-for="p in plans"
+          :key="p.code"
+          class="border rounded-xl p-3 hover:shadow cursor-pointer flex flex-col justify-between"
+          :class="selectedPlan === p.code ? 'ring-2 ring-sky-500' : ''"
+        >
+          <div>
+            <input
+              class="mr-2"
+              type="radio"
+              :value="p.code"
+              v-model="selectedPlan"
+            />
+            <span class="font-medium">{{ p.name }}</span>
+            <div class="text-xs text-slate-500">Anual: {{ formatPrice(p.price_yr) }}</div>
+
+            <div class="mt-1 text-[11px]">
+              <span
+                v-if="p.code === currentPlanCode"
+                class="px-2 py-0.5 rounded-full bg-slate-100 text-slate-600"
+              >
+                Actual
+              </span>
+            </div>
+
+            <div v-if="Array.isArray(p.features)" class="mt-3 space-y-1">
+              <div
+                v-for="f in p.features"
+                :key="f"
+                class="flex items-start gap-2 text-sm text-slate-700"
+              >
+                <span class="mt-0.5 inline-block w-2 h-2 rounded-full bg-sky-500"></span>
+                <span>{{ f }}</span>
+              </div>
+            </div>
+          </div>
+
+          <!-- Botón SOLO si esta card está seleccionada y NO es el plan actual -->
+          <div class="mt-4">
+            <button
+              v-if="selectedPlan === p.code && p.code !== currentPlanCode"
+              class="btn btn-primary w-full text-sm"
+              @click.stop="openCheckoutFor(p.code)"
+            >
+              Cambiar a este plan
+            </button>
+
+            <!-- Si está seleccionada y es el plan actual, muestra texto -->
+            <div
+              v-else-if="selectedPlan === p.code && p.code === currentPlanCode"
+              class="text-center text-slate-500 text-sm"
+            >
+              Plan actual
+            </div>
+            <!-- Si NO está seleccionada: no mostrar nada -->
+          </div>
         </label>
+      </div>
     </div>
 
-    <div class="flex flex-wrap items-center gap-2">
-        <button class="btn" :disabled="changingPlan || !selectedPlan || selectedPlan===currentPlanCode"
-                @click="initPlanChange">
-        {{ changingPlan ? 'Creando borrador…' : (currentPlanCode ? 'Cambiar de plan' : 'Elegir plan') }}
-        </button>
-
-        <!-- visible solo si ya hay un borrador pendiente -->
-        <template v-if="draftId">
-        <input v-model="paymentRef" class="input w-64" placeholder="Referencia de pago (paymentRef)" />
-        <button class="btn btn-primary" :disabled="confirmingPlan || !paymentRef" @click="confirmPlanChange">
-            {{ confirmingPlan ? 'Confirmando…' : 'Confirmar cambio' }}
-        </button>
-        </template>
-
-        <span class="text-green-600 text-sm" v-if="okPlan">{{ okPlan }}</span>
-        <span class="text-red-600 text-sm" v-if="errPlan">{{ errPlan }}</span>
-    </div>
-    </div>
-
+    <!-- 👆 CIERRE de la tarjeta de Plan -->
 
     <!-- 2) Datos del negocio -->
     <div class="card grid gap-3">
       <h2 class="font-semibold">Datos del negocio</h2>
       <div class="grid sm:grid-cols-2 gap-3">
-        <input v-model="form.name" class="input" placeholder="Nombre del negocio">
-        <input v-model="form.nit" class="input" placeholder="NIT (opcional)">
-        <input v-model="form.phone" class="input" placeholder="Teléfono">
-        <input v-model="form.email" class="input" placeholder="Correo">
-        <input v-model="form.website" class="input sm:col-span-2" placeholder="Sitio web (opcional)">
+        <input v-model="form.name" class="input" placeholder="Nombre del negocio" />
+        <input v-model="form.nit" class="input" placeholder="NIT (opcional)" />
+        <input v-model="form.phone" class="input" placeholder="Teléfono" />
+        <input v-model="form.email" class="input" placeholder="Correo" />
+        <input v-model="form.website" class="input sm:col-span-2" placeholder="Sitio web (opcional)" />
         <div class="sm:col-span-2">
           <label class="text-sm text-slate-600">Logo (URL por ahora)</label>
-          <input v-model="form.logo_url" class="input" placeholder="https://...">
+          <input v-model="form.logo_url" class="input" placeholder="https://..." />
         </div>
       </div>
       <div class="flex gap-2">
@@ -72,49 +97,47 @@
 
     <!-- 3) Preferencias de citas (solo si el plan permite citas) -->
     <div class="card grid gap-3" v-if="isAppointmentPlan">
-    <div class="flex items-center justify-between">
+      <div class="flex items-center justify-between">
         <h2 class="font-semibold">Preferencias de citas</h2>
-    </div>
+      </div>
 
-    <div class="grid sm:grid-cols-2 gap-3">
+      <div class="grid sm:grid-cols-2 gap-3">
         <!-- Intervalo -->
         <div>
-        <label class="text-sm text-slate-700 flex items-center gap-2">
+          <label class="text-sm text-slate-700 flex items-center gap-2">
             Intervalo por defecto (min)
-            <InfoTip text="Se usa para generar los espacios (slots) de la Gestión de Citas. Puedes sobreescribirlo por día en la tabla de abajo."/>
-        </label>
-        <select v-model.number="prefs.slotMin" class="input mt-1 w-full sm:w-56">
+            <InfoTip text="Se usa para generar los espacios (slots) de la Gestión de Citas. Puedes sobreescribirlo por día en la tabla de abajo." />
+          </label>
+          <select v-model.number="prefs.slotMin" class="input mt-1 w-full sm:w-56">
             <option :value="15">15</option>
             <option :value="20">20</option>
             <option :value="30">30</option>
             <option :value="45">45</option>
             <option :value="60">60</option>
-        </select>
+          </select>
         </div>
 
         <!-- Servicio a domicilio -->
         <div>
-        <label class="text-sm text-slate-700 flex items-center gap-2">
+          <label class="text-sm text-slate-700 flex items-center gap-2">
             Servicio a domicilio
-            <InfoTip text="Actívalo para ofrecer productos y servicios a domicilio. Tus clientes podrán separar citas para atención en casa y también podrás agendar entregas de productos."/>
-        </label>
-        <div class="mt-2">
+            <InfoTip text="Actívalo para ofrecer productos y servicios a domicilio. Tus clientes podrán separar citas para atención en casa y también podrás agendar entregas de productos." />
+          </label>
+          <div class="mt-2">
             <label class="inline-flex items-center gap-2">
-            <input type="checkbox" v-model="prefs.delivery">
-            <span class="text-sm">Ofrezco servicio a domicilio</span>
+              <input type="checkbox" v-model="prefs.delivery" />
+              <span class="text-sm">Ofrezco servicio a domicilio</span>
             </label>
+          </div>
         </div>
-        </div>
-    </div>
+      </div>
 
-    <div>
+      <div>
         <button class="btn btn-secondary w-full sm:w-auto" @click="savePrefs">Guardar preferencias</button>
         <span class="text-green-600 text-sm ml-3" v-if="okPrefs">{{ okPrefs }}</span>
         <span class="text-red-600 text-sm ml-3" v-if="errPrefs">{{ errPrefs }}</span>
+      </div>
     </div>
-    </div>
-
-
 
     <!-- 4) Horario por día (ÚNICA sección de horarios) -->
     <div class="card grid gap-3">
@@ -151,9 +174,16 @@
                 </select>
               </td>
               <td class="py-2 pr-3">
-                <input class="input w-28" type="number" min="5" max="240" step="5"
-                       v-model.number="row.slot_min" :disabled="!row.is_open"
-                       :placeholder="prefs.slotMin ? '('+prefs.slotMin+' por defecto)' : '(por defecto)'" />
+                <input
+                  class="input w-28"
+                  type="number"
+                  min="5"
+                  max="240"
+                  step="5"
+                  v-model.number="row.slot_min"
+                  :disabled="!row.is_open"
+                  :placeholder="prefs.slotMin ? '('+prefs.slotMin+' por defecto)' : '(por defecto)'"
+                />
               </td>
             </tr>
           </tbody>
@@ -165,9 +195,121 @@
         <span class="text-green-600 text-sm ml-3" v-if="ok2">{{ ok2 }}</span>
         <span class="text-red-600 text-sm ml-3" v-if="err2">{{ err2 }}</span>
       </div>
+
+      <!-- === MODAL: Checkout plan === -->
+            <div v-if="showCheckout" class="fixed inset-0 z-50">
+            <!-- backdrop -->
+            <div class="absolute inset-0 bg-slate-900/60" @click="closeCheckout"></div>
+
+            <!-- modal -->
+            <div class="absolute inset-0 grid place-items-center p-4">
+                <div class="w-full max-w-4xl bg-white rounded-2xl shadow-2xl overflow-hidden">
+                <!-- header -->
+                <div class="px-6 py-5 border-b flex items-center justify-between">
+                    <div>
+                    <div class="text-xs uppercase tracking-wide text-slate-400">Confirmar cambio de plan</div>
+                    <h3 class="text-xl font-semibold text-slate-800 mt-0.5">
+                        {{ modalPlan?.name }}
+                    </h3>
+                    </div>
+                    <div class="text-right">
+                    <div class="text-2xl font-bold text-slate-800">{{ formatPrice(modalPlan?.price_yr) }}</div>
+                    <div class="text-[11px] text-slate-500">Precio anual</div>
+                    </div>
+                </div>
+
+                <!-- body -->
+                <div class="px-6 py-6 grid lg:grid-cols-[1.2fr,1fr] gap-8">
+                    <!-- ventajas -->
+                    <div>
+                    <div class="mb-3">
+                        <span class="inline-block text-[11px] uppercase tracking-wide px-2 py-1 rounded-full bg-sky-50 text-sky-700 border border-sky-200">
+                        Beneficios clave
+                        </span>
+                    </div>
+
+                    <div class="grid sm:grid-cols-2 gap-3">
+                        <div
+                        v-for="f in (modalPlan?.features || [])"
+                        :key="f"
+                        class="flex items-start gap-3 p-3 rounded-lg bg-slate-50 border border-slate-200"
+                        >
+                        <svg xmlns="http://www.w3.org/2000/svg" class="w-4 h-4 mt-0.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2"
+                                d="M5 13l4 4L19 7" />
+                        </svg>
+                        <span class="text-sm text-slate-700">{{ f }}</span>
+                        </div>
+                    </div>
+
+                    <div class="mt-5 flex flex-wrap gap-2">
+                        <span class="px-2 py-1 rounded-full text-[11px] bg-emerald-50 text-emerald-700 border border-emerald-200">Soporte prioritario</span>
+                        <span class="px-2 py-1 rounded-full text-[11px] bg-indigo-50 text-indigo-700 border border-indigo-200">Panel administrativo</span>
+                        <span class="px-2 py-1 rounded-full text-[11px] bg-amber-50 text-amber-700 border border-amber-200">Reportes ejecutivos</span>
+                    </div>
+                    </div>
+
+                    <!-- checkout -->
+                    <div class="rounded-xl border border-slate-200 p-4">
+                    <div class="text-sm text-slate-600">
+                        Puedes proceder al pago ahora o, temporalmente, activar con un <strong>código de pago</strong>.
+                    </div>
+
+                    <div class="mt-4 space-y-3">
+                        <button
+                        class="btn btn-primary w-full"
+                        :disabled="modalLoading"
+                        @click="goToPayment"
+                        >
+                        {{ modalLoading && !modalDraftId ? 'Preparando pago…' : 'Ir a pagar' }}
+                        </button>
+
+                        <div class="relative my-2 text-center">
+                        <span class="bg-white px-3 text-xs text-slate-400 relative z-10">o</span>
+                        <div class="absolute left-0 right-0 top-1/2 -translate-y-1/2 border-t border-slate-200"></div>
+                        </div>
+
+                        <div>
+                        <label class="text-xs text-slate-600">Código de pago</label>
+                        <input v-model="modalPaymentRef" class="input w-full" placeholder="p.ej. MP-123456 / PI_abc..." />
+                        </div>
+                        <button
+                        class="btn w-full"
+                        :disabled="modalLoading || !modalPaymentRef"
+                        @click="activateWithCode"
+                        >
+                        {{ modalLoading ? 'Activando…' : 'Activar con código' }}
+                        </button>
+
+                        <div class="text-xs mt-2">
+                        <span v-if="modalOk" class="text-emerald-600">{{ modalOk }}</span>
+                        <span v-if="modalErr" class="text-red-600">{{ modalErr }}</span>
+                        </div>
+                    </div>
+
+                    <div class="mt-4 text-[11px] text-slate-400">
+                        Al activar, tu suscripción actual se marcará como <em>cancelada</em> y se iniciará el nuevo plan por 12 meses.
+                    </div>
+                    </div>
+                </div>
+
+                <!-- footer -->
+                <div class="px-6 py-4 border-t flex items-center justify-end gap-2">
+                    <button class="btn" @click="closeCheckout">Cerrar</button>
+                </div>
+                </div>
+            </div>
+            </div>
+
+
+
+
+
+
     </div>
   </div>
 </template>
+
 
 <script setup>
 import http from '@/api/http'
@@ -220,27 +362,63 @@ const week = ref([
   { dow:0, label:'Domingo',   is_open:false, start_hhmm:'08:00', end_hhmm:'12:00', slot_min:null },
 ])
 
-const subscription = ref(null) // <-- guarda sub para mostrar fechas
-const isAppointmentPlan = computed(() => ['citas','mixto'].includes(selectedPlan.value || currentPlanCode.value || ''))
+    /* === Estado de Plan (separado) === */
+    const selectedPlan = ref(null)      // plan elegido en la UI (code)
+    const currentPlanCode = ref(null)   // plan vigente (plan_code)
+    const draftId = ref(null)           // id del borrador 'pending_payment'
+    const paymentRef = ref('')          // referencia del pago (externa)
+    const changingPlan = ref(false)
+    const confirmingPlan = ref(false)
+    const okPlan = ref(''); const errPlan = ref('')
+
+    const canChangePlan = computed(() =>
+    !!selectedPlan.value && !!currentPlanCode.value && selectedPlan.value !== currentPlanCode.value
+    )
+    const canChooseFirstPlan = computed(() =>
+    !currentPlanCode.value && !!selectedPlan.value
+    )
+
+    const subscription = ref(null) // <-- guarda sub para mostrar fechas
+
+    // Mostrar prefs de citas si el plan seleccionado o vigente las soporta
+    const isAppointmentPlan = computed(() =>
+    ['citas','mixto'].includes(selectedPlan.value || currentPlanCode.value || '')
+    )
 
 
-/* === Estado de Plan (separado) === */
-const selectedPlan = ref(null)      // plan elegido en la UI (code)
-const currentPlanCode = ref(null)   // plan vigente (plan_code)
-const draftId = ref(null)           // id del borrador 'pending_payment'
-const paymentRef = ref('')          // referencia del pago (externa)
-const changingPlan = ref(false)
-const confirmingPlan = ref(false)
-const okPlan = ref(''); const errPlan = ref('')
+    function formatPrice(v){
+    if (v == null) return ''
+    try {
+        return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v)
+    } catch {
+        return `$${v}`
+    }
+    }
 
-function formatPrice(v){
-  if (v == null) return ''
-  try {
-    return new Intl.NumberFormat('es-CO', { style: 'currency', currency: 'COP', maximumFractionDigits: 0 }).format(v)
-  } catch {
-    return `$${v}`
-  }
-}
+    function safeParseFeatures(raw){
+    if (!raw) return []
+    if (Array.isArray(raw)) return raw
+    if (typeof raw === 'string'){
+        // intenta JSON
+        try {
+        const j = JSON.parse(raw)
+        if (Array.isArray(j)) return j
+        } catch {}
+        // intenta separar por saltos/comas
+        const parts = raw.split(/\r?\n|,/).map(s => s.trim()).filter(Boolean)
+        return parts
+    }
+    return []
+    }
+
+    function formatDate(iso){
+    if (!iso) return ''
+    try {
+        const d = new Date(iso)
+        return d.toLocaleDateString('es-CO', { year:'numeric', month:'2-digit', day:'2-digit' })
+    } catch { return iso }
+    }
+
 
 
 onMounted(load)
@@ -248,7 +426,11 @@ onMounted(load)
 async function load(){
   try{
     const { data: plansData } = await http.get('/business/plans')
-    plans.value = plansData
+    plans.value = (Array.isArray(plansData) ? plansData : []).map(p => ({
+    ...p,
+    features: safeParseFeatures(p.features)
+    }))
+
 
     const { data } = await http.get('/business/me')
 
@@ -373,46 +555,78 @@ async function saveWeekly(){
   }
 }
 
-async function initPlanChange(){
-  okPlan.value=''; errPlan.value=''; changingPlan.value = true
+  // === Modal de checkout ===
+const showCheckout = ref(false)
+const modalPlan = ref(null)        // objeto plan seleccionado
+const modalDraftId = ref(null)     // draft interno (oculto a la UI)
+const modalPaymentRef = ref('')
+const modalLoading = ref(false)
+const modalOk = ref(''); const modalErr = ref('')
+
+// Abre modal para un plan específico (desde botón de la card)
+function openCheckoutFor(planCode){
+  selectedPlan.value = planCode
+  openCheckout()
+}
+
+function openCheckout(){
+  modalOk.value = ''; modalErr.value = ''
+  modalDraftId.value = null
+  modalPaymentRef.value = ''
+  modalPlan.value = (plans.value || []).find(x => x.code === selectedPlan.value) || null
+  showCheckout.value = true
+}
+
+function closeCheckout(){
+  showCheckout.value = false
+}
+
+// Asegura borrador pendiente de pago (sin mostrar en UI)
+async function ensureDraft(){
+  if (modalDraftId.value) return modalDraftId.value
+  if (!modalPlan.value) throw new Error('No hay plan seleccionado.')
+  const { data } = await http.post('/business/me/change-plan/init', { plan: modalPlan.value.code })
+  modalDraftId.value = data?.draftSubscriptionId || null
+  return modalDraftId.value
+}
+
+// CTA principal: Ir a pagar (prepara draft y redirige — luego integrarás checkout real)
+async function goToPayment(){
+  modalOk.value=''; modalErr.value=''; modalLoading.value=true
   try{
-    if (!selectedPlan.value) throw new Error('Selecciona un plan')
-    // Evita llamar si no hay cambio
-    if (currentPlanCode.value && selectedPlan.value === currentPlanCode.value){
-      okPlan.value = 'Ya estás en este plan.'
-      return
-    }
-    const { data } = await http.post('/business/me/change-plan/init', { plan: selectedPlan.value })
-    draftId.value = data?.draftSubscriptionId || null
-    okPlan.value = 'Borrador creado. Ingresa la referencia de pago y confirma.'
+    const draftId = await ensureDraft()
+    if (!draftId) throw new Error('No fue posible preparar el pago.')
+    // TODO: integrar pasarela. Por ahora, mostramos aviso.
+    modalOk.value = 'Borrador preparado. Redirige a tu pasarela aquí.'
+    // window.location.href = `/checkout?draft=${draftId}` // ejemplo
   }catch(e){
-    errPlan.value = e.response?.data?.error || e.message
+    modalErr.value = e.response?.data?.error || e.message
   }finally{
-    changingPlan.value = false
+    modalLoading.value=false
   }
 }
 
-async function confirmPlanChange(){
-  okPlan.value=''; errPlan.value=''; confirmingPlan.value = true
+// Activar con código (sin mostrar creación de borrador)
+async function activateWithCode(){
+  modalOk.value=''; modalErr.value=''; modalLoading.value=true
   try{
-    if (!draftId.value) throw new Error('No hay un borrador pendiente.')
-    if (!paymentRef.value) throw new Error('Falta la referencia de pago.')
+    const draftId = await ensureDraft()
+    if (!draftId) throw new Error('No fue posible preparar la activación.')
+    if (!modalPaymentRef.value) throw new Error('Ingresa el código de pago.')
     await http.post('/business/me/change-plan/confirm', {
-      draftId: Number(draftId.value),
-      paymentRef: paymentRef.value
+      draftId: Number(draftId),
+      paymentRef: modalPaymentRef.value
     })
-    okPlan.value = 'Plan activado correctamente.'
-    // refresca datos para ver vigencia actualizada
+    modalOk.value = 'Plan activado correctamente.'
     await load()
-    // limpia draft y ref
-    paymentRef.value = ''
-    draftId.value = null
+    showCheckout.value = false
   }catch(e){
-    errPlan.value = e.response?.data?.error || e.message
+    modalErr.value = e.response?.data?.error || e.message
   }finally{
-    confirmingPlan.value = false
+    modalLoading.value=false
   }
 }
+
 
 
 
