@@ -1,3 +1,4 @@
+// src/business/routes.js
 import { Router } from 'express'
 import { z } from 'zod'
 import { pool } from '../db.js'
@@ -49,8 +50,11 @@ r.get('/me', async (req, res) => {
   res.json({ business: biz || null, subscription: sub, prefs, hours })
 })
 
+/* -------------------------------------------------------
+   PERFIL DEL NEGOCIO (sin tocar plan/suscripciones)
+------------------------------------------------------- */
 
-// PUT /api/business/me  → crear/actualizar perfil + (opcional) plan
+// PUT /api/business/me  → crear/actualizar perfil (solo datos)
 r.put('/me', async (req, res) => {
   const uid = req.user.id
   const dto = z.object({
@@ -59,8 +63,8 @@ r.put('/me', async (req, res) => {
     nit: z.string().optional().or(z.literal('')),
     phone: z.string().min(3),
     email: z.string().email(),
-    website: z.string().url().optional().or(z.literal('')),
-    plan: z.enum(['citas','contable','mixto']).optional() // si viene, (re)activa suscripción
+    website: z.string().url().optional().or(z.literal(''))
+    // ⛔️ OJO: aquí ya NO se recibe "plan"
   }).parse(req.body)
 
   // upsert negocio
@@ -85,22 +89,98 @@ r.put('/me', async (req, res) => {
     businessId = ins.insertId
   }
 
-  // si envió plan, (re)activa suscripción por 1 año
-  if (dto.plan) {
-    const [[plan]] = await pool.query('SELECT id FROM plans WHERE code=? LIMIT 1', [dto.plan])
-    if (!plan) return res.status(400).json({ error:'Plan inválido' })
-
-    // marca previas como canceled y crea nueva active (simple)
-    await pool.query('UPDATE subscriptions SET status="canceled" WHERE business_id=? AND status="active"', [businessId])
-    await pool.query(
-      `INSERT INTO subscriptions (business_id, plan_id, started_at, ends_at, status)
-       VALUES (?, ?, NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR), 'active')`,
-      [businessId, plan.id]
-    )
-  }
-
   res.json({ ok: true, businessId })
 })
+
+/* -------------------------------------------------------
+   CAMBIO DE PLAN (separado) — flujo con init → pago → confirm
+------------------------------------------------------- */
+
+// POST /api/business/me/change-plan/init → crea borrador pendiente de pago
+r.post('/me/change-plan/init', async (req, res) => {
+  const uid = req.user.id
+  const dto = z.object({
+    plan: z.enum(['citas','contable','mixto'])
+  }).parse(req.body)
+
+  const [[biz]] = await pool.query(
+    'SELECT id FROM businesses WHERE owner_user_id=? LIMIT 1', [uid]
+  )
+  if (!biz) return res.status(400).json({ error:'Primero crea tu negocio' })
+
+  const [[plan]] = await pool.query(
+    'SELECT id, code, name, price_yr FROM plans WHERE code=? LIMIT 1', [dto.plan]
+  )
+  if (!plan) return res.status(400).json({ error:'Plan inválido' })
+
+  // Creamos una suscripción "borrador" sin afectar la activa
+  const [ins] = await pool.query(
+    `INSERT INTO subscriptions (business_id, plan_id, started_at, ends_at, status)
+     VALUES (?, ?, NOW(), DATE_ADD(NOW(), INTERVAL 1 YEAR), 'pending_payment')`,
+    [biz.id, plan.id]
+  )
+
+  res.json({
+    ok: true,
+    draftSubscriptionId: ins.insertId,
+    plan: { id: plan.id, code: plan.code, name: plan.name, price_yr: plan.price_yr }
+  })
+})
+
+// POST /api/business/me/change-plan/confirm → activa borrador y cancela la activa previa
+r.post('/me/change-plan/confirm', async (req, res) => {
+  const uid = req.user.id
+  const dto = z.object({
+    draftId: z.number().int().positive(),
+    paymentRef: z.string().min(3) // id o referencia del pago externo (Stripe/MercadoPago)
+  }).parse(req.body)
+
+  const [[biz]] = await pool.query(
+    'SELECT id FROM businesses WHERE owner_user_id=? LIMIT 1', [uid]
+  )
+  if (!biz) return res.status(400).json({ error:'Primero crea tu negocio' })
+
+  const [[draft]] = await pool.query(
+    'SELECT * FROM subscriptions WHERE id=? AND business_id=? LIMIT 1',
+    [dto.draftId, biz.id]
+  )
+  if (!draft) return res.status(404).json({ error:'Borrador no encontrado' })
+  if (draft.status !== 'pending_payment') {
+    return res.status(400).json({ error:'El borrador no está pendiente de pago' })
+  }
+
+  const conn = await pool.getConnection()
+  try {
+    await conn.beginTransaction()
+
+    // Cancela la suscripción activa anterior (si existe)
+    await conn.query(
+      'UPDATE subscriptions SET status="canceled" WHERE business_id=? AND status="active"',
+      [biz.id]
+    )
+
+    // Activa el borrador y guarda referencia de pago (si existe la columna)
+    // Nota: si tu tabla no tiene external_payment_id, quita ese campo del UPDATE.
+    await conn.query(
+      `UPDATE subscriptions
+       SET status="active", external_payment_id=?
+       WHERE id=?`,
+       [dto.paymentRef, draft.id]
+    )
+
+    await conn.commit()
+    res.json({ ok: true, activatedSubscriptionId: draft.id })
+  } catch (e) {
+    await conn.rollback()
+    res.status(500).json({ error: e.message })
+  } finally {
+    conn.release()
+  }
+})
+
+/* -------------------------------------------------------
+   PREFERENCIAS / HORARIOS
+------------------------------------------------------- */
 
 // PUT /api/business/me/schedule  → guarda prefs (horario/intervalo/delivery)
 r.put('/me/schedule', async (req, res) => {
@@ -176,6 +256,5 @@ r.put('/me/hours', async (req, res) => {
     conn.release()
   }
 })
-
 
 export default r

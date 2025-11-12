@@ -62,3 +62,8 @@ export async function login({ email, password }) {
   const tokens = signTokens({ uid: u.id, role: u.role })
   return { user: { id: u.id, role: u.role, email: u.email }, ...tokens }
 }
+
+export async function changePlan(userId, newPlan) {
+  await db.query('UPDATE users SET plan = ?, plan_changed_at = NOW() WHERE id = ?', [newPlan, userId])
+  return { id: userId, newPlan }
+}
