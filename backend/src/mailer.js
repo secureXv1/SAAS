@@ -15,9 +15,6 @@ export function getTransport() {
 
 export async function sendMail({ to, subject, html }) {
   const tx = getTransport()
-  if (!tx) {
-    console.log('[MAIL:mock]', { to, subject, html })
-    return { mock: true }
-  }
+  if (!tx) { console.log('[MAIL:mock]', { to, subject, html }); return { mock: true } }
   return tx.sendMail({ from: process.env.SMTP_USER, to, subject, html })
 }

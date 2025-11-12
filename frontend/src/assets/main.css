@@ -1,0 +1,10 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* utilidades */
+.input { @apply w-full rounded-lg border border-slate-300 px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-sky-500; }
+.btn { @apply inline-flex items-center justify-center rounded-lg px-3 py-2 text-sm font-medium; }
+.btn-primary { @apply bg-slate-900 text-white hover:bg-slate-800; }
+.btn-secondary { @apply bg-sky-600 text-white hover:bg-sky-500; }
+.card { @apply bg-white rounded-2xl shadow p-4; }
