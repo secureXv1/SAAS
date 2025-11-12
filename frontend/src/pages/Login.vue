@@ -23,6 +23,7 @@
 import { ref } from 'vue'
 import { useAuth } from '@/stores/auth'
 import { useRouter, RouterLink } from 'vue-router'
+import { resolveHomeByRole } from '@/router'
 
 const email = ref('')
 const password = ref('')
@@ -30,13 +31,14 @@ const error = ref('')
 const auth = useAuth()
 const router = useRouter()
 
-async function onSubmit() {
-  error.value = ''
-  try {
+async function onSubmit(){
+  error.value=''
+  try{
     await auth.login({ email: email.value, password: password.value })
-    router.push('/app/dashboard')
-  } catch (e) {
+    router.push(resolveHomeByRole(auth.role))
+  }catch(e){
     error.value = e.response?.data?.error || e.message
   }
 }
 </script>
+
