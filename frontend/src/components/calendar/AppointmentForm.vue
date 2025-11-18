@@ -2,8 +2,10 @@
   <div class="fixed inset-0 bg-black/40 grid place-items-center z-50">
     <div class="bg-white rounded-2xl shadow-xl w-[95vw] max-w-xl p-4 sm:p-6">
       <div class="flex items-center justify-between">
-        <h3 class="font-semibold">{{ initial ? 'Editar cita' : 'Nueva cita' }}</h3>
-        <button class="text-slate-500" @click="$emit('close')">✕</button>
+        <h3 class="font-semibold">
+          {{ initial && initial.id ? 'Editar cita' : 'Nueva cita' }}
+        </h3>
+        <button class="text-slate-500" @click="emit('close')">✕</button>
       </div>
 
       <form class="grid gap-3 mt-3" @submit.prevent="save">
@@ -18,12 +20,16 @@
 
         <label class="grid gap-1">
           <span class="text-sm">Título</span>
-          <input v-model.trim="form.title" class="border rounded-lg px-3 py-2" placeholder="Ej. Corte de cabello" />
+          <input
+            v-model.trim="form.title"
+            class="border rounded-lg px-3 py-2"
+            placeholder="Ej. Corte de cabello"
+          />
         </label>
 
         <label class="grid gap-1">
           <span class="text-sm">Notas</span>
-          <textarea v-model.trim="form.notes" rows="2" class="border rounded-lg px-3 py-2"></textarea>
+          <textarea v-model.trim="form.notes" rows="2" class="border rounded-lg px-3 py-2" />
         </label>
 
         <div class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -38,7 +44,8 @@
         </div>
 
         <label class="flex items-center gap-2">
-          <input type="checkbox" v-model="form.is_domicile" class="accent-sky-500"> Cita a domicilio
+          <input type="checkbox" v-model="form.is_domicile" class="accent-sky-500" />
+          Cita a domicilio
         </label>
 
         <div v-if="form.is_domicile" class="grid grid-cols-1 sm:grid-cols-2 gap-3">
@@ -53,8 +60,40 @@
         </div>
 
         <div class="flex items-center justify-end gap-2 mt-2">
-          <button type="button" class="px-3 py-1.5 rounded-lg border" @click="$emit('close')">Cancelar</button>
-          <button type="submit" class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white">Guardar</button>
+          <button
+            type="button"
+            class="px-3 py-1.5 rounded-lg border"
+            @click="emit('close')"
+          >
+            Cancelar
+          </button>
+          <button
+            type="submit"
+            class="px-3 py-1.5 rounded-lg bg-emerald-600 text-white"
+          >
+            Guardar
+          </button>
+        </div>
+
+        <!-- Acciones extra si es cita existente -->
+        <div
+          v-if="initial && initial.id"
+          class="mt-4 pt-3 border-t flex flex-col sm:flex-row gap-2 justify-between"
+        >
+          <button
+            type="button"
+            class="px-3 py-1.5 rounded-lg border border-red-200 text-red-600 text-sm"
+            @click="cancelAppointment"
+          >
+            Cancelar cita
+          </button>
+          <button
+            type="button"
+            class="px-3 py-1.5 rounded-lg border border-slate-300 text-slate-700 text-sm"
+            @click="blockFromAppointment"
+          >
+            Bloquear este horario
+          </button>
         </div>
       </form>
     </div>
@@ -62,10 +101,15 @@
 </template>
 
 <script setup>
-import { reactive, onMounted, ref } from 'vue'
+import { reactive, onMounted, ref, watch } from 'vue'
 import http from '@/api/http'
 
-const props = defineProps({ initial: { type: Object, default: null } })
+const props = defineProps({
+  initial: { type: Object, default: null }
+})
+
+const emit = defineEmits(['close'])
+
 const clients = ref([])
 
 const form = reactive({
@@ -79,40 +123,74 @@ const form = reactive({
   end_at: ''
 })
 
+function loadFromInitial() {
+  if (!props.initial) return
+  form.client_id = props.initial.client_id ?? null
+  form.title = props.initial.title || ''
+  form.notes = props.initial.notes || ''
+  form.is_domicile = !!props.initial.is_domicile
+  form.domicile_addr = props.initial.domicile_addr || ''
+  form.domicile_phone = props.initial.domicile_phone || ''
+  // Si vienen como ISO, corto a yyyy-MM-ddTHH:mm
+  if (props.initial.start_at) form.start_at = props.initial.start_at.slice(0, 16)
+  if (props.initial.end_at)   form.end_at   = props.initial.end_at.slice(0, 16)
+}
+
 onMounted(async () => {
   const { data } = await http.get('/business/clients')
   clients.value = data.items || []
-  if (props.initial) {
-    Object.assign(form, {
-      client_id: props.initial.client_id,
-      title: props.initial.title,
-      notes: props.initial.notes,
-      is_domicile: !!props.initial.is_domicile,
-      domicile_addr: props.initial.domicile_addr,
-      domicile_phone: props.initial.domicile_phone,
-      start_at: props.initial.start_at?.slice(0,16),
-      end_at:   props.initial.end_at?.slice(0,16)
-    })
+  if (!form.client_id && clients.value.length) {
+    form.client_id = clients.value[0].id
   }
+  loadFromInitial()
 })
+
+watch(() => props.initial, loadFromInitial)
 
 async function save() {
   if (!form.client_id || !form.title || !form.start_at || !form.end_at) {
     alert('Completa los campos obligatorios')
     return
   }
-  if (props.initial) await http.patch(`/business/appointments/${props.initial.id}`, form)
-  else await http.post('/business/appointments', form)
-  emitClose()
+
+  const payload = {
+    ...form,
+    is_domicile: form.is_domicile ? 1 : 0
+  }
+
+  if (props.initial && props.initial.id) {
+    await http.patch(`/business/appointments/${props.initial.id}`, payload)
+  } else {
+    await http.post('/business/appointments', payload)
+  }
+
+  emit('close')
 }
 
-function emitClose(){
-  // Notificar al padre; Appointments.vue escucha @close en el componente
-  // Como estamos en <script setup>, basta con emitir un evento nativo:
-  // (Uso alterno por compatibilidad de tu código actual)
-  const e = new CustomEvent('close')
-  window.dispatchEvent(e)
-  // y también emitir el evento del componente:
-  // (lo hace el template en el botón de cerrar)
+async function cancelAppointment() {
+  if (!props.initial?.id) return
+  if (!confirm('¿Seguro que deseas cancelar/eliminar esta cita?')) return
+  await http.delete(`/business/appointments/${props.initial.id}`)
+  emit('close')
+}
+
+async function blockFromAppointment() {
+  if (!props.initial) return
+  const reason = prompt('Motivo del bloqueo (ej. Reserva / descanso / bloqueo manual):', 'Bloqueo desde cita')
+  if (!reason) return
+
+  await http.post('/business/appointment-blocks', {
+    reason,
+    start_at: form.start_at,
+    end_at: form.end_at
+  })
+
+  // Opcional: cancelar la cita original
+  const cancelar = confirm('¿También deseas cancelar la cita original?')
+  if (cancelar && props.initial.id) {
+    await http.delete(`/business/appointments/${props.initial.id}`)
+  }
+
+  emit('close')
 }
 </script>
