@@ -179,17 +179,28 @@ router.post('/business/appointment-blocks', auth, requireRole('business'), async
     const businessId = ensureBusiness(req)
     const userId = req.user.id
     const { reason, start_at, end_at } = req.body
-    if (!reason || !start_at || !end_at)
-      return res.status(400).json({ error: 'reason, start_at, end_at required' })
 
-    const [over] = await pool.query(`
-      SELECT 'APPT' FROM appointments WHERE business_id=? AND start_at < ? AND end_at > ?`,
-      [businessId, end_at, start_at])
-    if (over.length) return res.status(409).json({ error: 'Conflicto con citas existentes' })
+    // Solo fechas obligatorias; el motivo es opcional
+    if (!start_at || !end_at) {
+      return res.status(400).json({ error: 'start_at, end_at required' })
+    }
 
-    const [ins] = await pool.query(`
-      INSERT INTO appointment_blocks (business_id, owner_user_id, reason, start_at, end_at)
-      VALUES (?,?,?,?,?)`, [businessId, userId, reason, start_at, end_at])
+    const cleanReason = (reason ?? '').trim()
+
+    const [over] = await pool.query(
+      `SELECT 'APPT' FROM appointments
+       WHERE business_id=? AND start_at < ? AND end_at > ?`,
+      [businessId, end_at, start_at]
+    )
+    if (over.length) {
+      return res.status(409).json({ error: 'Conflicto con citas existentes' })
+    }
+
+    const [ins] = await pool.query(
+      `INSERT INTO appointment_blocks (business_id, owner_user_id, reason, start_at, end_at)
+       VALUES (?,?,?,?,?)`,
+      [businessId, userId, cleanReason, start_at, end_at]
+    )
 
     const [row] = await pool.query('SELECT * FROM appointment_blocks WHERE id=?', [ins.insertId])
     res.status(201).json(row[0])
@@ -198,6 +209,8 @@ router.post('/business/appointment-blocks', auth, requireRole('business'), async
     res.status(400).json({ error: err.message })
   }
 })
+
+
 
 // ---- ELIMINAR Bloqueo
 router.delete('/business/appointment-blocks/:id', auth, requireRole('business'), async (req, res) => {

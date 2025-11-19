@@ -200,6 +200,17 @@ const blockInitial = ref(null)
 
 // --------- Helpers de tiempo ----------
 
+function toLocalInput(d) {
+  const pad = n => String(n).padStart(2, '0')
+  const yyyy = d.getFullYear()
+  const mm = pad(d.getMonth() + 1)
+  const dd = pad(d.getDate())
+  const hh = pad(d.getHours())
+  const mi = pad(d.getMinutes())
+  return `${yyyy}-${mm}-${dd}T${hh}:${mi}`
+}
+
+
 function pad(n) {
   return String(n).padStart(2, '0')
 }
@@ -230,7 +241,7 @@ const days = computed(() => {
 })
 
 function selectDate(date) {
-  uiDate.value = date.toISOString().slice(0, 10)
+  uiDate.value = `${date.getFullYear()}-${pad(date.getMonth() + 1)}-${pad(date.getDate())}`
 }
 
 // --------- Cargar configuración negocio (opcional) ----------
@@ -330,15 +341,16 @@ const slots = computed(() => {
       }) || null
 
       result.push({
-        key: dStart.toISOString(),
-        label,
-        startIso: dStart.toISOString(),
-        endIso: dEnd.toISOString(),
-        hasAppointment: !!appt,
-        hasBlock: !!block,
-        appointment: appt,
-        block
-      })
+      key: dStart.toISOString(),          // la key puede seguir en ISO
+      label,
+      startIso: toLocalInput(dStart),     // 👈 ahora local
+      endIso: toLocalInput(dEnd),         // 👈 ahora local
+      hasAppointment: !!appt,
+      hasBlock: !!block,
+      appointment: appt,
+      block
+    })
+
     }
   }
   return result
