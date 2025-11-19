@@ -1,4 +1,46 @@
 <template>
+
+<!-- HEADER DEL NEGOCIO -->
+<header class="fixed top-0 left-0 right-0 z-50 bg-white shadow-sm">
+  <div class="max-w-6xl mx-auto px-4 h-16 flex items-center justify-between">
+
+    <!-- Izquierda: logo + nombre -->
+    <div class="flex items-center gap-3">
+      <div
+        v-if="business?.logo_url"
+        class="w-10 h-10 rounded-xl bg-slate-200 overflow-hidden"
+      >
+        <img
+          :src="business.logo_url"
+          alt="Logo negocio"
+          class="w-full h-full object-cover"
+        />
+      </div>
+      <div
+        v-else
+        class="w-10 h-10 rounded-xl bg-gradient-to-br from-violet-600 to-purple-600 grid place-items-center text-white font-bold"
+      >
+        {{ business?.name?.charAt(0) || 'N' }}
+      </div>
+
+      <div>
+        <h2 class="font-semibold text-slate-800">{{ business?.name || 'Mi Negocio' }}</h2>
+        <p class="text-xs text-slate-400">Agenda de citas</p>
+      </div>
+    </div>
+
+    <!-- Derecha: Botón cerrar sesión -->
+    <button
+      @click="logout"
+      class="px-4 py-2 bg-slate-800 text-white rounded-lg text-sm hover:bg-slate-700"
+    >
+      Cerrar sesión
+    </button>
+  </div>
+</header>
+
+
+
   <div class="min-h-screen bg-slate-50">
     <!-- HERO / Filtros -->
     <div class="bg-gradient-to-r from-slate-800 to-slate-700">
@@ -177,6 +219,18 @@ import { startOfWeek, addDays, formatISO } from 'date-fns'
 import AppointmentForm from '@/components/calendar/AppointmentForm.vue'
 import BlockHoursModal from '@/components/calendar/BlockHoursModal.vue'
 import http from '@/api/http'
+
+
+const business = ref(null)
+
+async function loadBusiness() {
+  try {
+    const { data } = await http.get('/business/me')
+    business.value = data.business
+  } catch (err) {
+    console.error('Error cargando negocio', err)
+  }
+}
 
 // Config básica (más adelante las puedes sobreescribir con la config de negocio)
 const startHour = ref(7)   // 7:00
@@ -505,7 +559,8 @@ function handleBlockClosed() {
 // --------- Ciclo de vida ----------
 
 onMounted(async () => {
-  await loadConfig()   // si no existe /business/config, esta función simplemente no cambia nada
+  await loadBusiness()
+  await loadConfig()
   await reload()
 })
 
