@@ -9,8 +9,9 @@
           <h1 class="text-white text-2xl font-semibold">Agenda</h1>
           <p class="text-slate-300 text-sm">Gestiona tus citas y bloqueos</p>
           <p class="text-slate-400 text-xs mt-1">
-            Intervalo: {{ slotMinutes }} min — de {{ pad(startHour) }}:00 a {{ pad(endHour) }}:00
+            Intervalo: {{ heroSlotMinutes }} min — de {{ pad(heroStartHour) }}:00 a {{ pad(heroEndHour) }}:00
           </p>
+
         </div>
 
         <div class="flex flex-wrap items-center gap-2">
@@ -210,6 +211,66 @@ function toLocalInput(d) {
   return `${yyyy}-${mm}-${dd}T${hh}:${mi}`
 }
 
+const hoursByDow = ref([])   // horario por día (business_hours)
+
+
+// Config efectiva para el día seleccionado
+const effectiveDayConfig = computed(() => {
+  const base = selectedDate.value
+  const dowJs = base.getDay() // 0=domingo ... 6=sábado
+
+  // Si en DB dow es 0..6 igual que JS:
+  let dowDb = dowJs
+
+  // 👉 Si tu tabla business_hours usa 1..7 (1=lunes,...,7=domingo),
+  // comenta la línea anterior y usa esta:
+  // const dowDb = ((dowJs + 6) % 7) + 1
+
+  const cfg = (hoursByDow.value || []).find(h => h.dow === dowDb)
+
+  const defaultSlot = slotMinutes.value
+  const defaultStartMin = startHour.value * 60
+  const defaultEndMin   = endHour.value * 60
+
+  if (!cfg) {
+    // No hay config específica para este día: usar defaults
+    return {
+      isOpen: true,
+      slotMin: defaultSlot,
+      startMin: defaultStartMin,
+      endMin: defaultEndMin
+    }
+  }
+
+  if (!cfg.is_open) {
+    // Día cerrado: puedes decidir devolver isOpen:false y así no generar slots
+    return {
+      isOpen: false,
+      slotMin: cfg.slot_min || defaultSlot,
+      startMin: cfg.start_min ?? defaultStartMin,
+      endMin: cfg.end_min ?? defaultEndMin
+    }
+  }
+
+  return {
+    isOpen: true,
+    slotMin: cfg.slot_min || defaultSlot,
+    startMin: cfg.start_min ?? defaultStartMin,
+    endMin: cfg.end_min ?? defaultEndMin
+  }
+})
+
+const heroSlotMinutes = computed(() => effectiveDayConfig.value.slotMin)
+
+const heroStartHour = computed(() => {
+  return Math.floor(effectiveDayConfig.value.startMin / 60)
+})
+
+const heroEndHour = computed(() => {
+  return Math.floor(effectiveDayConfig.value.endMin / 60)
+})
+
+
 
 function pad(n) {
   return String(n).padStart(2, '0')
@@ -249,16 +310,20 @@ function selectDate(date) {
 async function loadConfig() {
   try {
     const { data } = await http.get('/business/config')
-    if (data?.slot_minutes) {
-      slotMinutes.value = Number(data.slot_minutes) || 30
+    if (data?.slot_min != null) {
+      slotMinutes.value = Number(data.slot_min) || 30
     }
-    if (data?.start_hour) startHour.value = Number(data.start_hour)
-    if (data?.end_hour)   endHour.value   = Number(data.end_hour)
+    if (data?.start_hour != null) startHour.value = Number(data.start_hour)
+    if (data?.end_hour != null)   endHour.value   = Number(data.end_hour)
+    if (Array.isArray(data?.hours_by_dow)) {
+      hoursByDow.value = data.hours_by_dow
+    }
   } catch (err) {
-    // Silencioso: si no existe el endpoint o devuelve 401/404, nos quedamos con los defaults
-    // console.debug('[Agenda] No se pudo cargar config negocio', err)
+    console.error('[Agenda] loadConfig error:', err?.message)
   }
 }
+
+
 
 // --------- Cargar citas / bloqueos ----------
 
@@ -317,44 +382,57 @@ const dayBlocks = computed(() => {
 const slots = computed(() => {
   const result = []
   const base = selectedDate.value
-  for (let h = startHour.value; h < endHour.value; h++) {
-    for (let m = 0; m < 60; m += slotMinutes.value) {
-      const dStart = new Date(base)
-      dStart.setHours(h, m, 0, 0)
-      const dEnd = new Date(dStart.getTime() + slotMinutes.value * 60000)
+  const cfg = effectiveDayConfig.value
 
-      const label = dStart.toLocaleTimeString('es-CO', {
-        hour: '2-digit',
-        minute: '2-digit'
-      })
+  // Si el día está marcado como cerrado, no generamos slots
+  if (!cfg.isOpen) {
+    return result
+  }
 
-      const appt = dayEvents.value.find(e => {
-        const s = new Date(e.start_at)
-        const en = new Date(e.end_at)
-        return s < dEnd && en > dStart
-      }) || null
+  const slotMin = cfg.slotMin
+  const startMin = cfg.startMin
+  const endMin   = cfg.endMin
 
-      const block = dayBlocks.value.find(b => {
-        const s = new Date(b.start_at)
-        const en = new Date(b.end_at)
-        return s < dEnd && en > dStart
-      }) || null
+  for (let t = startMin; t < endMin; t += slotMin) {
+    const dStart = new Date(base)
+    const h = Math.floor(t / 60)
+    const m = t % 60
+    dStart.setHours(h, m, 0, 0)
 
-      result.push({
-      key: dStart.toISOString(),          // la key puede seguir en ISO
+    const dEnd = new Date(dStart.getTime() + slotMin * 60000)
+
+    const label = dStart.toLocaleTimeString('es-CO', {
+      hour: '2-digit',
+      minute: '2-digit'
+    })
+
+    const appt = dayEvents.value.find(e => {
+      const s = new Date(e.start_at)
+      const en = new Date(e.end_at)
+      return s < dEnd && en > dStart
+    }) || null
+
+    const block = dayBlocks.value.find(b => {
+      const s = new Date(b.start_at)
+      const en = new Date(b.end_at)
+      return s < dEnd && en > dStart
+    }) || null
+
+    result.push({
+      key: dStart.toISOString(),
       label,
-      startIso: toLocalInput(dStart),     // 👈 ahora local
-      endIso: toLocalInput(dEnd),         // 👈 ahora local
+      startIso: toLocalInput(dStart),   // usamos el helper local que ya tienes
+      endIso: toLocalInput(dEnd),
       hasAppointment: !!appt,
       hasBlock: !!block,
       appointment: appt,
       block
     })
-
-    }
   }
+
   return result
 })
+
 
 // --------- Acciones sobre slots ----------
 

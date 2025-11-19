@@ -50,6 +50,53 @@ r.get('/me', async (req, res) => {
   res.json({ business: biz || null, subscription: sub, prefs, hours })
 })
 
+// GET /api/business/config
+r.get('/config', async (req, res) => {
+  try {
+    const businessId = req.user?.business_id
+    if (!businessId) {
+      return res.status(400).json({ error: 'Missing business_id' })
+    }
+
+    const [[prefs]] = await pool.query(
+      `SELECT start_hour, end_hour, slot_min, delivery
+       FROM business_prefs
+       WHERE business_id = ?`,
+      [businessId]
+    )
+
+    const [hours] = await pool.query(
+      `SELECT business_id, dow, is_open, start_min, end_min, slot_min
+       FROM business_hours
+       WHERE business_id = ?
+       ORDER BY dow`,
+      [businessId]
+    )
+
+    const slotMinDefault   = prefs?.slot_min ?? 30
+    const startHourDefault = prefs?.start_hour ?? 7
+    const endHourDefault   = prefs?.end_hour ?? 21
+    const delivery         = prefs?.delivery ?? 0
+
+    res.json({
+      slot_min:   slotMinDefault,
+      start_hour: startHourDefault,
+      end_hour:   endHourDefault,
+      delivery,
+      hours_by_dow: hours.map(h => ({
+        dow: h.dow,
+        is_open: !!h.is_open,
+        start_min: h.start_min,
+        end_min:   h.end_min,
+        slot_min:  h.slot_min
+      }))
+    })
+  } catch (err) {
+    console.error('[business/config] error:', err)
+    res.status(500).json({ error: 'Internal error' })
+  }
+})
+
 /* -------------------------------------------------------
    PERFIL DEL NEGOCIO (sin tocar plan/suscripciones)
 ------------------------------------------------------- */

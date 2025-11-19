@@ -104,16 +104,24 @@ export async function login({ email, password }) {
     throw new Error('Debes verificar tu correo')
   }
 
-  // 👇 Construimos el payload del JWT
+  // 🔎 Buscamos el negocio cuyo owner es este usuario
+  let businessId = null
+  if (u.role === 'business') {
+    const [[biz]] = await pool.query(
+      'SELECT id FROM businesses WHERE owner_user_id=? LIMIT 1',
+      [u.id]
+    )
+    if (biz) {
+      businessId = biz.id       // este es el ID que usan business_prefs y business_hours
+    }
+  }
+
   const payload = {
     uid: u.id,
     role: u.role
   }
-
-  // Para rol "business" añadimos business_id
-  // Si mañana tienes una columna users.business_id, cambia a u.business_id
-  if (u.role === 'business') {
-    payload.business_id = u.business_id ?? u.id
+  if (businessId) {
+    payload.business_id = businessId
   }
 
   const tokens = signTokens(payload)
@@ -123,12 +131,12 @@ export async function login({ email, password }) {
       id: u.id,
       role: u.role,
       email: u.email,
-      // útil por si el frontend quiere saberlo
-      business_id: u.business_id ?? (u.role === 'business' ? u.id : null)
+      business_id: businessId
     },
     ...tokens
   }
 }
+
 
 export async function changePlan(userId, newPlan) {
   // 🔧 Arreglado: antes usaba "db" que no existe
